@@ -1,0 +1,70 @@
+name: Daily Reading Exam and GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'bank.json'
+      - 'data/**'
+      - 'scripts/**'
+      - '.github/workflows/daily-reading.yml'
+  schedule:
+    # 매일 오전 05:17 KST = 전날 20:17 UTC. 지연될 수 있습니다.
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'reading-pages'
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate new Korean reading exam
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-4o
+        run: python scripts/generate_daily.py
+      - name: Save newly generated exam
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/daily/
+          if ! git diff --cached --quiet; then
+            git commit -m "Add daily reading exam"
+            git push
+          fi
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Prepare web content
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+          mkdir -p _site/data/daily
+          cp -a data/daily/. _site/data/daily/
+          touch _site/.nojekyll
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
